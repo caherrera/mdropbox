@@ -1,5 +1,19 @@
 #!/bin/bash
-dropboxes=".dropbox-work .dropbox-personal"
+
+dropboxes="";
+
+while [ "$1" != "" ]; do
+    case $1 in
+
+    * )                     dropboxes="$dropboxes $1";;
+
+    esac
+    shift
+done
+if [ "$dropboxes" == "" ]; then
+  dropboxes=".dropbox-work .dropbox-personal"
+fi
+
 for dropbox in $dropboxes
 do
     HOME="/home/$USER"
