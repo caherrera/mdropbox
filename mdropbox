@@ -1,27 +1,110 @@
 #!/bin/bash
 
+[ -x /usr/bin/dropbox ] || exit 1
+
+# Function: get_config_list config_file
+          # Purpose : Print the list of configs from config file
+get_config_list()
+{
+   typeset config_file=$1
+
+   awk -F '[][]' '
+      NF==3 && $0 ~ /^\[.*\]/ { print $2 }
+   ' ${config_file}
+}
+
+# Function : set_config_vars config_file config [var_prefix]
+# Purpose  : Set variables (optionaly prefixed by var_prefix) from config in config file
+set_config_vars()
+{
+   typeset config_file=$1
+   typeset config=$2
+   typeset var_prefix=$3
+   typeset config_vars
+
+   config_vars=$(
+        awk -F= -v Config="${config}" -v Prefix="${var_prefix}" '
+        BEGIN {
+           Config = toupper(Config);
+           patternConfig = "\\[" Config "]";
+        }
+        toupper($0)  ~ patternConfig,(/\[/ && toupper($0) !~ patternConfig)  {
+           if (/\[/ || NF <2) next;
+           sub(/^[[:space:]]*/, "");
+           sub(/[[:space:]]*=[[:space:]]/, "=");
+           print Prefix $0;
+        } ' ${config_file} )
+
+   eval "${config_vars}"
+}
+
+createConfigFolder() {
+  if ! [ -d "$etc" ]; then
+    echo "Creating config folder $etc"
+    mkdir -p "$etc" || exit 1;
+  fi
+}
+
+createIni() {
+
+  if [ ! -f $cfg ]; then
+    dropboxes=".dropbox-work .dropbox-personal"
+    echo "Creating config file $cfg";
+    echo "[mdropbox]" > $cfg;
+    echo "dropboxes=\".dropbox-work .dropbox-personal\"" >> $cfg;
+    echo "log=\"$etc/mdropbox.log\"" >> $cfg;
+  fi
+}
+
+
 dropboxes="";
+etc=$HOME/.mdropbox
+cfg=$etc/mdropbox.ini
+
+createConfigFolder
+createIni
+
+set_config_vars $cfg "mdropbox" "mdropbox_"
+
+
+mdropboxlog="$mdropbox_log"
+
+if [ "$mdropboxlog" == "" ]; then
+  mdropboxlog=/dev/null
+fi
+
+echo "Log file $mdropbox_log"
+customdropboxes='';
 
 while [ "$1" != "" ]; do
     case $1 in
 
-    * )                     dropboxes="$dropboxes $1";;
+    * )                     customdropboxes="$customdropboxes $1";;
 
     esac
     shift
 done
-if [ "$dropboxes" == "" ]; then
-  dropboxes=".dropbox-work .dropbox-personal"
+if [ "$customdropboxes" != "" ]; then
+  boxes="$customdropboxes"
+else
+  boxes="$mdropbox_dropboxes"
 fi
 
-for dropbox in $dropboxes
+for dropbox in $boxes
 do
+    echo -n "Starting $dropbox ..."
     HOME="/home/$USER"
-    if ! [ -d "$HOME/$dropbox" ]
-    then
-        mkdir "$HOME/$dropbox" 2> /dev/null
-        ln -s "$HOME/.Xauthority" "$HOME/$dropbox/" 2> /dev/null
+    if ! [ -d "$HOME/$dropbox" ]; then
+        echo -n " creating folder ...";
+        mkdir "$HOME/$dropbox" 2>> $mdropboxlog
+        ln -s "$HOME/.Xauthority" "$HOME/$dropbox/" 2>> $mdropboxlog
     fi
     HOME="$HOME/$dropbox"
-    /home/$USER/.dropbox-dist/dropboxd 2> /dev/null &
+    if [ -e $HOME/.dropbox-dist/dropboxd ]; then
+      $HOME/.dropbox-dist/dropboxd 2>> $mdropboxlog &
+    else
+      echo -n "Setting up ..."
+      /usr/bin/dropbox start -i
+    fi
+    echo " done"
 done
